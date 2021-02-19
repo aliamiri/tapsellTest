@@ -1,0 +1,85 @@
+version: '3'
+services:
+  nginx:
+   container_name: tapsell-nginx
+   image: nginx:1.13
+   restart: always
+   ports:
+   - 8131:80
+   volumes:
+   - ./nginx/conf.d:/etc/nginx/conf.d
+   depends_on:
+   - generator
+   - tapsellbigdatahandler
+
+  generator:
+    restart: always
+    build: ./generator
+    working_dir: /generator
+    volumes:
+      - ./generator:/generator
+    expose:
+      - "8080"
+    depends_on:
+      - kafka
+    command: mvn clean spring-boot:run
+
+  tapsellbigdatahandler:
+    restart: always
+    build: ./tapsellbigdatahandler
+    working_dir: /tapsellbigdatahandler
+    volumes:
+      - ./tapsellbigdatahandler:/tapsellbigdatahandler
+    expose:
+      - "8080"
+    depends_on:
+      - tapsellcassandra
+      - kafka
+    command: mvn clean spring-boot:run
+
+  tapsellcassandra:
+    environment:
+      - CASSANDRA_KEYSPACE=tapsellspace
+    restart: always
+    build: ./tapsellcassandra
+    working_dir: /tapsellcassandra
+    volumes:
+      - ./tapsellcassandra:/tapsellcassandra
+    expose:
+      - "9042"
+    ports:
+      - "9042:9042"
+      
+  zookeeper:
+    image: wurstmeister/zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+  kafka:
+    image: wurstmeister/kafka:2.13-2.6.0
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "9093"
+    environment:
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: INSIDE://kafka:9093,OUTSIDE://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INSIDE:PLAINTEXT,OUTSIDE:PLAINTEXT
+      KAFKA_LISTENERS: INSIDE://:9093,OUTSIDE://:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: INSIDE
+      KAFKA_CREATE_TOPICS: "TopicTapsellImpressionEvent:1:1,TopicTapsellClickEvent:1:1:compact"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+  kafdrop:
+    image: obsidiandynamics/kafdrop
+    ports:
+      - "9000:9000"
+    environment:
+      KAFKA_BROKERCONNECT: kafka:9093
+      JVM_OPTS: "-Xms32M -Xmx64M"
+      SERVER_SERVLET_CONTEXTPATH: "/"
+    depends_on:
+      - kafka
